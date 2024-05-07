@@ -1,5 +1,8 @@
 use macroquad::prelude::*;
-use std::{net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket}, slice::Iter};
+use std::{
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket},
+    slice::Iter,
+};
 
 struct Entity {
     x: f32,
@@ -9,11 +12,10 @@ struct Entity {
     player: bool,
 }
 
-impl ToString for Entity  {
+impl ToString for Entity {
     fn to_string(&self) -> String {
         format!("{} {} {} {}", self.x, self.y, self.width, self.height)
     }
-    
 }
 
 struct World {
@@ -21,7 +23,8 @@ struct World {
 }
 
 impl World {
-    fn new() -> Self { World {
+    fn new() -> Self {
+        World {
             entities: Vec::new(),
         }
     }
@@ -31,22 +34,30 @@ impl World {
     }
 
     fn get_player(&mut self) -> &mut Entity {
-        self.entities.iter_mut().find(|entity| entity.player).unwrap()
+        self.entities
+            .iter_mut()
+            .find(|entity| entity.player)
+            .unwrap()
     }
 
     fn get_opponent(&mut self) -> &mut Entity {
-        self.entities.iter_mut().find(|entity| !entity.player).unwrap()
+        self.entities
+            .iter_mut()
+            .find(|entity| !entity.player)
+            .unwrap()
     }
 
     fn get_ball(&mut self) -> &mut Entity {
-        self.entities.iter_mut().find(|entity| entity.width == entity.height).unwrap()
+        self.entities
+            .iter_mut()
+            .find(|entity| entity.width == entity.height)
+            .unwrap()
     }
 
     fn add_entity(&mut self, entity: Entity) {
         self.entities.push(entity);
     }
 }
-
 
 struct NetworkSystem {
     buf: [u8; 1024],
@@ -61,23 +72,27 @@ impl NetworkSystem {
         NetworkSystem {
             buf: [0; 1024],
             client_addr,
-            socket, 
-            server_addr: SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080)
+            socket,
+            server_addr: SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080),
         }
     }
 
     fn parse(&mut self, size: usize) -> Vec<f32> {
         println!("size: {}", size);
-        std::str::from_utf8(&self.buf[..size]).unwrap()
+        std::str::from_utf8(&self.buf[..size])
+            .unwrap()
             .split_whitespace()
             .filter_map(|s| s.parse::<f32>().ok())
             .collect()
     }
 
-    fn connect(&mut self) ->  Entity {
+    fn connect(&mut self) -> Entity {
         let buf = "join".as_bytes();
-        let _  = self.socket.send_to(buf, self.server_addr);
-        let (size, _source) = self.socket.recv_from(&mut self.buf).expect("Failed to connect to the server");
+        let _ = self.socket.send_to(buf, self.server_addr);
+        let (size, _source) = self
+            .socket
+            .recv_from(&mut self.buf)
+            .expect("Failed to connect to the server");
         let floats: Vec<f32> = self.parse(size);
 
         if floats.len() != 4 {
@@ -86,23 +101,25 @@ impl NetworkSystem {
 
         let (x, y, width, height) = (floats[0], floats[1], floats[2], floats[3]);
 
-        self.socket.set_nonblocking(true).expect("Failed to set non-blocking mode");
+        self.socket
+            .set_nonblocking(true)
+            .expect("Failed to set non-blocking mode");
         println!("Connected to the server");
         Entity {
             x,
             y,
             width,
             height,
-            player: true
+            player: true,
         }
     }
 
     fn send(&mut self, data: Vec<u8>) {
-       let _ = self.socket.send_to(&data, self.server_addr);
+        let _ = self.socket.send_to(&data, self.server_addr);
     }
 
-    fn listen(&mut self) -> Result<(usize, SocketAddr), std::io::Error>  {
-         self.socket.recv_from(&mut self.buf)
+    fn listen(&mut self) -> Result<(usize, SocketAddr), std::io::Error> {
+        self.socket.recv_from(&mut self.buf)
     }
 }
 
@@ -111,7 +128,7 @@ struct RenderSystem;
 impl RenderSystem {
     fn render(&self, world: &World) {
         world.get_entities().for_each(|entity| {
-                draw_rectangle(entity.x, entity.y, entity.width, entity.height, WHITE);
+            draw_rectangle(entity.x, entity.y, entity.width, entity.height, WHITE);
         })
     }
 }
@@ -130,14 +147,14 @@ impl ControlSystem {
     }
 
     fn add_ball(&self, world: &mut World, floats: &Vec<f32>) {
-        if world.get_entities().count() == 2 && floats.len() ==  8 {
+        if world.get_entities().count() == 2 && floats.len() == 8 {
             println!("Adding ball");
             world.add_entity(Entity {
                 x: floats[4],
                 y: floats[5],
                 width: floats[6],
                 height: floats[7],
-                player: false
+                player: false,
             });
         }
     }
@@ -152,7 +169,7 @@ impl ControlSystem {
                 y,
                 width,
                 height,
-                player: false
+                player: false,
             });
         }
     }
@@ -173,7 +190,7 @@ impl ControlSystem {
 
     fn update_ball_locally(&self, world: &mut World) {
         if world.get_entities().count() > 2 {
-            world.get_ball().x += 1.;
+            world.get_ball().x += 70. * get_frame_time();
             //world.get_ball().y += 1.;
         }
     }
@@ -182,17 +199,15 @@ impl ControlSystem {
 #[macroquad::main("Pong")]
 async fn main() -> std::io::Result<()> {
     let client_addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
-    let mut network_system = NetworkSystem::new(client_addr); 
-    let res =  network_system.connect();
+    let mut network_system = NetworkSystem::new(client_addr);
+    let res = network_system.connect();
 
     let mut world = World::new();
     world.add_entity(res);
     let render_system = RenderSystem;
     let control_system = ControlSystem;
-    
 
     loop {
-        warn!("{}", macroquad::time::get_fps());
         clear_background(BLACK);
 
         control_system.movement(&mut world, &mut network_system);
@@ -206,7 +221,7 @@ async fn main() -> std::io::Result<()> {
                 control_system.add_ball(&mut world, &floats);
                 control_system.update_opponent(&mut world, &floats);
                 control_system.update_ball(&mut world, &floats);
-            },
+            }
             Err(e) => {
                 if e.kind() != std::io::ErrorKind::WouldBlock {
                     eprintln!("Error: {:?}", e);
@@ -214,8 +229,6 @@ async fn main() -> std::io::Result<()> {
             }
         };
 
-
         next_frame().await
     }
 }
-
