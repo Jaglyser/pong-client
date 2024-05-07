@@ -1,95 +1,52 @@
 use macroquad::prelude::*;
-use std::{borrow::Cow, net::{Ipv4Addr, SocketAddrV4, UdpSocket}};
+use std::{net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket}, slice::Iter};
 
-
-struct World {
-    local_player: Paddle,
-    network_player: Paddle,
-    ball: Ball,
+struct Entity {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    player: bool,
 }
 
-impl World {
-    fn new () -> Self {
-        World {
-            local_player: Paddle {
-                x: 20.,
-                y: 100.0,
-                width: 20.0,
-                height: 100.0,
-                dx: 0.,
-                dy: 0.,
-            },
-            network_player: Paddle {
-                x: screen_width() - 40.,
-                y: 100.,
-                width: 20.,
-                height: 100.,
-                dx: 0.,
-                dy: 0.,
-            },
-            ball: Ball {
-                x: 0.,
-                y: 0.,
-                width: 0.,
-                height: 0.,
-                dx: 0.,
-                dy: 0.,
-            },
-        }
-    }
-}
-
-struct ControlSystem;
-
-impl ControlSystem {
-    pub fn update_local_player(paddle:&mut Paddle) {
-        if is_key_down(KeyCode::Up) {
-            paddle.y += 4.;
-        }
-        else if is_key_down(KeyCode::Down) {
-            paddle.y -= 4.;
-        }
-    }
-}
-
-
-struct PhysicsSystem;
-impl PhysicsSystem {
-    fn new() -> Self {
-        PhysicsSystem
-    }
-
-    fn collision(ball: Ball, players: &Vec<Box<dyn GameObject>>) {
-        let collision_player = players.iter()
-            .filter(|p| p.get_position().0 < ball.x + ball.width)
-            .filter(|p| p.get_position().0 + p.get_size().0 > ball.x);
-
-        if collision_player.count() > 0 {
-            // ball.dx = -ball.dx;
-        }
-    }
-}
-
-struct RenderSystem {
-    objects: Vec<Box<dyn GameObject>>,
-}
-
-impl RenderSystem {
-    fn new() -> Self {
-        RenderSystem {
-            objects: Vec::new(),
-        }
-    }
-
-    fn add_objects(&mut self, objects: Vec<Box<dyn GameObject>>) {
-        self.objects.extend(objects);
-    }
-
-    fn render(&self) {
-        self.objects.iter().for_each(|object| object.draw());
+impl ToString for Entity  {
+    fn to_string(&self) -> String {
+        format!("{} {} {} {}", self.x, self.y, self.width, self.height)
     }
     
 }
+
+struct World {
+    entities: Vec<Entity>,
+}
+
+impl World {
+    fn new() -> Self { World {
+            entities: Vec::new(),
+        }
+    }
+
+    fn get_entities(&self) -> Iter<Entity> {
+        self.entities.iter()
+    }
+
+    fn get_player(&mut self) -> &mut Entity {
+        self.entities.iter_mut().find(|entity| entity.player).unwrap()
+    }
+
+    fn get_opponent(&mut self) -> &mut Entity {
+        self.entities.iter_mut().find(|entity| !entity.player).unwrap()
+    }
+
+    fn get_ball(&mut self) -> &mut Entity {
+        self.entities.iter_mut().find(|entity| entity.width == entity.height).unwrap()
+    }
+
+    fn add_entity(&mut self, entity: Entity) {
+        self.entities.push(entity);
+    }
+}
+
 
 struct NetworkSystem {
     buf: [u8; 1024],
@@ -100,79 +57,127 @@ struct NetworkSystem {
 
 impl NetworkSystem {
     fn new(client_addr: SocketAddrV4) -> Self {
+        let socket = UdpSocket::bind(client_addr).unwrap();
         NetworkSystem {
             buf: [0; 1024],
             client_addr,
-            socket: UdpSocket::bind(client_addr).unwrap(),
+            socket, 
             server_addr: SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 8080)
         }
     }
 
-    fn connect(&mut self) -> Cow<'_, str> {
+    fn parse(&mut self, size: usize) -> Vec<f32> {
+        println!("size: {}", size);
+        std::str::from_utf8(&self.buf[..size]).unwrap()
+            .split_whitespace()
+            .filter_map(|s| s.parse::<f32>().ok())
+            .collect()
+    }
+
+    fn connect(&mut self) ->  Entity {
         let buf = "join".as_bytes();
         let _  = self.socket.send_to(buf, self.server_addr);
         let (size, _source) = self.socket.recv_from(&mut self.buf).expect("Failed to connect to the server");
-        String::from_utf8_lossy(&self.buf[..size])
+        let floats: Vec<f32> = self.parse(size);
+
+        if floats.len() != 4 {
+            panic!("Failed to connect to the server");
+        }
+
+        let (x, y, width, height) = (floats[0], floats[1], floats[2], floats[3]);
+
+        self.socket.set_nonblocking(true).expect("Failed to set non-blocking mode");
+        println!("Connected to the server");
+        Entity {
+            x,
+            y,
+            width,
+            height,
+            player: true
+        }
     }
 
-    fn send(&self, data: Vec<u8>) {
-        // send data
+    fn send(&mut self, data: Vec<u8>) {
+       let _ = self.socket.send_to(&data, self.server_addr);
     }
 
-    fn receive(&self) -> Vec<u8> {
-        // receive data
-        Vec::new()
-    }
-}
-
-trait GameObject {
-    fn draw(&self);
-    fn get_position(&self) -> (f32, f32);
-    fn get_size(&self) -> (f32, f32);
-    fn get_velocity(&self) -> (f32, f32);
-    fn update(&self);
-}
-
-impl GameObject for Paddle {
-    fn draw(&self) {
-        draw_rectangle(self.x, self.y, self.width, self.height, WHITE);
-    }
-
-    fn update(&self) {
-        // do nothing
-    }
-
-    fn get_position(&self) -> (f32, f32) {
-        (self.x, self.y)
-    }
-    
-    fn get_size(&self) -> (f32, f32) {
-        (self.width, self.height)
-    }
-
-    fn get_velocity(&self) -> (f32, f32) {
-        (self.dx, self.dy)
+    fn listen(&mut self) -> Result<(usize, SocketAddr), std::io::Error>  {
+         self.socket.recv_from(&mut self.buf)
     }
 }
 
-struct Paddle {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-    dx: f32,
-    dy: f32,
-}
+struct RenderSystem;
 
-struct Ball {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-    dx: f32,
-    dy: f32,
+impl RenderSystem {
+    fn render(&self, world: &World) {
+        world.get_entities().for_each(|entity| {
+                draw_rectangle(entity.x, entity.y, entity.width, entity.height, WHITE);
+        })
+    }
 }
+struct ControlSystem;
 
+impl ControlSystem {
+    fn movement(&self, world: &mut World, network_system: &mut NetworkSystem) {
+        if is_key_down(KeyCode::S) {
+            world.get_player().y += 4.0;
+            network_system.send(world.get_player().to_string().as_bytes().to_vec());
+        }
+        if is_key_down(KeyCode::W) {
+            world.get_player().y -= 4.0;
+            network_system.send(world.get_player().to_string().as_bytes().to_vec());
+        }
+    }
+
+    fn add_ball(&self, world: &mut World, floats: &Vec<f32>) {
+        if world.get_entities().count() == 2 && floats.len() ==  8 {
+            println!("Adding ball");
+            world.add_entity(Entity {
+                x: floats[4],
+                y: floats[5],
+                width: floats[6],
+                height: floats[7],
+                player: false
+            });
+        }
+    }
+
+    fn add_opponent(&self, world: &mut World, floats: &Vec<f32>) {
+        if world.get_entities().count() == 1 && floats.len() > 4 {
+            println!("Adding opponent");
+            let (x, y, width, height) = (floats[0], floats[1], floats[2], floats[3]);
+
+            world.add_entity(Entity {
+                x,
+                y,
+                width,
+                height,
+                player: false
+            });
+        }
+    }
+
+    fn update_opponent(&self, world: &mut World, floats: &Vec<f32>) {
+        if world.get_entities().count() >= 2 && floats.len() >= 4 {
+            world.get_opponent().x = floats[0];
+            world.get_opponent().y = floats[1];
+        }
+    }
+
+    fn update_ball(&self, world: &mut World, floats: &Vec<f32>) {
+        if floats.len() == 8 {
+            world.get_ball().x = floats[4];
+            world.get_ball().y = floats[5];
+        }
+    }
+
+    fn update_ball_locally(&self, world: &mut World) {
+        if world.get_entities().count() > 2 {
+            world.get_ball().x += 1.;
+            //world.get_ball().y += 1.;
+        }
+    }
+}
 
 #[macroquad::main("Pong")]
 async fn main() -> std::io::Result<()> {
@@ -180,42 +185,35 @@ async fn main() -> std::io::Result<()> {
     let mut network_system = NetworkSystem::new(client_addr); 
     let res =  network_system.connect();
 
-    let left_paddle = Paddle {
-        x: 20.,
-        y: 100.0,
-        width: 20.0,
-        height: 100.0,
-        dx: 0.,
-        dy: 0.,
-    };
-
-    let right_paddle = Paddle {
-        x: screen_width() - 40.,
-        y: 100.,
-        width: 20.,
-        height: 100.,
-        dx: 0.,
-        dy: 0.,
-    };
-
-    let mut control_system = ControlSystem;
-
-
-    let mut pos_x = 10.;
-    let ball_dx = 4.;
-    let mut ball_x = 0.; 
+    let mut world = World::new();
+    world.add_entity(res);
+    let render_system = RenderSystem;
+    let control_system = ControlSystem;
     
 
     loop {
-        ball_x += ball_dx;
-        control_system.update_local_player();
-
-
+        warn!("{}", macroquad::time::get_fps());
         clear_background(BLACK);
 
-        //draw_rectangle(20., 100.0 - pos_x, 20.0, 100.0, WHITE);
-        //draw_rectangle(screen_width() - 40., 100.0 - pos_x, 20.0, 100.0, WHITE);
-        draw_circle(screen_width() / 2. + ball_x , screen_height() / 2.0, 15.0, WHITE);
+        control_system.movement(&mut world, &mut network_system);
+        control_system.update_ball_locally(&mut world);
+        render_system.render(&world);
+
+        match network_system.listen() {
+            Ok((usize, _source)) => {
+                let floats = network_system.parse(usize);
+                control_system.add_opponent(&mut world, &floats);
+                control_system.add_ball(&mut world, &floats);
+                control_system.update_opponent(&mut world, &floats);
+                control_system.update_ball(&mut world, &floats);
+            },
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::WouldBlock {
+                    eprintln!("Error: {:?}", e);
+                }
+            }
+        };
+
 
         next_frame().await
     }
