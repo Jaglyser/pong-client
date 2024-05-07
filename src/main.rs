@@ -138,11 +138,11 @@ impl ControlSystem {
     fn movement(&self, world: &mut World, network_system: &mut NetworkSystem) {
         if is_key_down(KeyCode::S) {
             world.get_player().y += 4.0;
-            network_system.send(world.get_player().to_string().as_bytes().to_vec());
+            //network_system.send(world.get_player().to_string().as_bytes().to_vec());
         }
         if is_key_down(KeyCode::W) {
             world.get_player().y -= 4.0;
-            network_system.send(world.get_player().to_string().as_bytes().to_vec());
+            //network_system.send(world.get_player().to_string().as_bytes().to_vec());
         }
     }
 
@@ -211,12 +211,13 @@ async fn main() -> std::io::Result<()> {
         clear_background(BLACK);
 
         control_system.movement(&mut world, &mut network_system);
-        control_system.update_ball_locally(&mut world);
         render_system.render(&world);
+        network_system.send(world.get_player().to_string().as_bytes().to_vec());
 
         match network_system.listen() {
             Ok((usize, _source)) => {
                 let floats = network_system.parse(usize);
+                println!("Received: {:?}", floats);
                 control_system.add_opponent(&mut world, &floats);
                 control_system.add_ball(&mut world, &floats);
                 control_system.update_opponent(&mut world, &floats);
