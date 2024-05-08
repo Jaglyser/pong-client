@@ -189,6 +189,7 @@ impl ControlSystem {
     }
 
     fn update_ball_locally(&self, world: &mut World) {
+        println!("frame time: {}", get_frame_time());
         if world.get_entities().count() > 2 {
             world.get_ball().x += 70. * get_frame_time();
             //world.get_ball().y += 1.;
